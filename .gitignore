@@ -1,0 +1,14 @@
+# Build output and distributable binaries (rebuild with `make dist` / `make src-dist`)
+/target
+/dist
+
+# Benchmark reports produced by `cpubench run` (machine-specific, regenerate)
+/cpubench-results
+*.partial.json
+
+# Editor / OS / tooling noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.playwright-mcp/

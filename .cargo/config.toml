@@ -1,0 +1,8 @@
+# Static musl builds for both architectures use the self-contained rust-lld
+# linker, so no cross C toolchain is needed and both binaries ship the same
+# libc code (important for a fair x86_64 vs aarch64 comparison).
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
