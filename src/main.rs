@@ -3,6 +3,7 @@ mod kernels;
 mod model;
 mod report;
 mod score;
+mod serve;
 mod stats;
 mod sys;
 mod sysinfo;
@@ -33,6 +34,8 @@ enum Cmd {
     Compare(CompareArgs),
     /// Re-render a saved JSON report as Markdown/HTML
     Report(ReportArgs),
+    /// Start a web UI to run benchmarks, watch progress, open reports and compare them
+    Serve(ServeArgs),
     /// Show detected hardware and OS information
     Info,
     /// List available benchmark kernels
@@ -118,6 +121,23 @@ struct CompareArgs {
 }
 
 #[derive(Args)]
+struct ServeArgs {
+    /// Address to listen on. Loopback by default; for access from other machines use an ssh tunnel
+    /// (ssh -L 8080:127.0.0.1:8080 user@host) or bind a non-loopback address (then a token is required)
+    #[arg(long, default_value = "127.0.0.1:8080")]
+    bind: String,
+    /// Directory where reports are written and listed
+    #[arg(long, default_value = "cpubench-results")]
+    out: PathBuf,
+    /// Access token (min 8 chars). Generated automatically for non-loopback binds
+    #[arg(long)]
+    token: Option<String>,
+    /// Allow a non-loopback bind WITHOUT authentication (anyone reaching the port can start runs)
+    #[arg(long)]
+    no_auth: bool,
+}
+
+#[derive(Args)]
 struct ReportArgs {
     file: PathBuf,
     #[arg(long, default_value = "cpubench-results")]
@@ -130,6 +150,7 @@ fn main() -> ExitCode {
         Cmd::Run(a) => run(a),
         Cmd::Compare(a) => compare(a),
         Cmd::Report(a) => rerender(a),
+        Cmd::Serve(a) => serve::run(serve::Options { bind: a.bind, out: a.out, token: a.token, no_auth: a.no_auth }),
         Cmd::Info => info(),
         Cmd::List => list(),
     };
@@ -361,7 +382,11 @@ fn run(a: RunArgs) -> Res<()> {
         );
         results.push(res);
         // Persist progress so a crash or Ctrl-C still leaves the evidence collected so far.
-        let _ = fs::write(&partial_path, serde_json::to_string(&results).unwrap_or_default());
+        // Write-then-rename so a reader (the web UI) never sees half a file.
+        let tmp = partial_path.with_extension("json.tmp");
+        if fs::write(&tmp, serde_json::to_string(&results).unwrap_or_default()).is_ok() {
+            let _ = fs::rename(&tmp, &partial_path);
+        }
     }
 
     if pin_failures > 0 {
@@ -420,15 +445,22 @@ fn load(path: &Path) -> Res<Report> {
     Ok(r)
 }
 
-fn compare(a: CompareArgs) -> Res<()> {
-    let (mut ra, mut rb) = (load(&a.a)?, load(&a.b)?);
+/// Compare two saved reports and write `compare-<a>-vs-<b>.{md,html}` into `out`.
+fn compare_files(a: &Path, b: &Path, out: &Path, opts: &CompareOpts) -> Res<(report::Doc, String, Vec<PathBuf>)> {
+    let (mut ra, mut rb) = (load(a)?, load(b)?);
     if ra.label == rb.label {
         ra.label = format!("{}-A", ra.label);
         rb.label = format!("{}-B", rb.label);
     }
+    let doc = report::compare::build_doc(&ra, &rb, opts);
+    let stem = format!("compare-{}-vs-{}", sanitize(&ra.label), sanitize(&rb.label));
+    let files = write_all_formats(out, &stem, &doc)?;
+    Ok((doc, stem, files))
+}
+
+fn compare(a: CompareArgs) -> Res<()> {
     let opts = CompareOpts { cost_a: a.cost_a, cost_b: a.cost_b, watts_a: a.watts_a, watts_b: a.watts_b };
-    let doc = report::compare::build_doc(&ra, &rb, &opts);
-    let files = write_all_formats(&a.out, &format!("compare-{}-vs-{}", ra.label, rb.label), &doc)?;
+    let (doc, _, files) = compare_files(&a.a, &a.b, &a.out, &opts)?;
     print!("{}", render::text(&doc));
     println!("\nReport files:");
     files.iter().for_each(|f| println!("  {}", f.display()));

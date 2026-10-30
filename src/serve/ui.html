@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>cpubench</title>
+<style>
+:root{--bg:#f6f7fa;--card:#fff;--fg:#1c2330;--muted:#5b6678;--line:#dfe3ea;--head:#f3f5f9;--accent:#2563eb;--accent-fg:#fff;--ok:#16794a;--ok-bg:#e3f5ec;--bad:#b42318;--bad-bg:#fdeceb;--warn-bg:#fff4e0;--warn-line:#e8a33d;--run:#2563eb;--run-bg:#e8f0fe}
+@media (prefers-color-scheme:dark){:root{--bg:#0f131a;--card:#171c25;--fg:#e6e9ef;--muted:#9aa4b5;--line:#2a3140;--head:#1d2430;--accent:#5b9bff;--accent-fg:#0b1220;--ok:#5fd39b;--ok-bg:#12281f;--bad:#ff8a80;--bad-bg:#2d1715;--warn-bg:#2b2213;--warn-line:#b9812c;--run:#8ab4ff;--run-bg:#16233d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI","Noto Sans Thai",sans-serif}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:1100px;margin:0 auto;padding:20px 16px 4px}
+header h1{font-size:1.5rem;margin:0}
+.muted{color:var(--muted)}
+main{max-width:1100px;margin:0 auto;padding:8px 16px 64px;display:grid;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.card h2{font-size:1.05rem;margin:0 0 12px}
+.chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.8rem;font-weight:600;background:var(--head);color:var(--muted)}
+.chip.running{background:var(--run-bg);color:var(--run)}.chip.done{background:var(--ok-bg);color:var(--ok)}.chip.failed{background:var(--bad-bg);color:var(--bad)}.chip.cancelled{background:var(--warn-bg);color:var(--fg)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:.9rem}
+.kv dt{color:var(--muted)}.kv dd{margin:0;word-break:break-word}
+form{display:grid;gap:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+label{display:grid;gap:4px;font-size:.85rem;color:var(--muted)}
+input,select,button{font:inherit;color:var(--fg)}
+input,select{padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg)}
+button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--head);cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+button.danger{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.note{background:var(--warn-bg);border-left:4px solid var(--warn-line);padding:8px 12px;border-radius:4px;font-size:.88rem}
+.err{background:var(--bad-bg);border-left:4px solid var(--bad);padding:8px 12px;border-radius:4px;white-space:pre-wrap;font-size:.88rem}
+.bar{height:12px;background:var(--head);border-radius:99px;overflow:hidden}
+.bar>div{height:100%;background:var(--accent);transition:width .6s}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.table-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{padding:5px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--head);font-weight:600}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+pre{margin:0;padding:10px;background:var(--head);border-radius:7px;font-size:.78rem;overflow-x:auto;max-height:220px}
+a{color:var(--accent)}
+details summary{cursor:pointer;color:var(--muted);font-size:.88rem}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>cpubench</h1>
+  <span class="muted" id="ver"></span>
+  <span class="chip" id="state">...</span>
+</header>
+<main>
+  <section class="card"><h2>เครื่องนี้ (System)</h2><dl class="kv" id="sys"></dl></section>
+
+  <section class="card">
+    <h2>เริ่มรัน Benchmark</h2>
+    <form id="runform" autocomplete="off">
+      <div class="grid">
+        <label>ชื่อรายงาน (label)<input id="f-label" placeholder="ว่าง = ชื่อ hostname"></label>
+        <label>Profile
+          <select id="f-profile">
+            <option value="full">full — ใช้ตัดสินใจ (~10 นาที)</option>
+            <option value="standard">standard — ~5 นาที (ไม่ใช่ค่าสุดท้าย)</option>
+            <option value="quick">quick — ~1 นาที (ทดสอบว่ารันได้)</option>
+          </select></label>
+        <label>โหมด
+          <select id="f-mode">
+            <option value="both">ทั้ง 1 thread และทุก thread</option>
+            <option value="single">เฉพาะ 1 thread</option>
+            <option value="multi">เฉพาะทุก thread</option>
+          </select></label>
+      </div>
+      <details>
+        <summary>ตัวเลือกขั้นสูง</summary>
+        <div class="grid" style="margin-top:10px">
+          <label>จำนวน thread<input id="f-threads" type="number" min="1" placeholder="ว่าง = ทุก CPU"></label>
+          <label>จำกัด CPU (เช่น 0-63 = socket แรก)<input id="f-cpus" placeholder="ว่าง = ไม่จำกัด"></label>
+          <label>เฉพาะ kernel (คั่นด้วย ,)<input id="f-only" placeholder="เช่น int.sort,crypto"></label>
+          <label>ข้าม kernel<input id="f-skip" placeholder="เช่น mem.lat"></label>
+          <label>งบ memory STREAM (MiB)<input id="f-mem" type="number" min="16" placeholder="อัตโนมัติ"></label>
+        </div>
+      </details>
+      <div class="note hidden" id="notfull">profile นี้ไม่ใช่ full รายงานจะติดป้ายว่าเป็นการรันสั้น ห้ามใช้ตัวเลขตัดสินใจจัดซื้อ</div>
+      <div class="err hidden" id="runerr"></div>
+      <div class="row"><button class="primary" id="startbtn" type="submit">เริ่มรัน</button><span class="muted" id="busy"></span></div>
+    </form>
+  </section>
+
+  <section class="card hidden" id="prog">
+    <h2>ความคืบหน้า</h2>
+    <div class="row" style="margin-bottom:8px"><span class="chip" id="pstate"></span><strong id="plabel"></strong><span class="muted" id="pinfo"></span><span style="flex:1"></span><button class="danger hidden" id="cancelbtn">ยกเลิก</button></div>
+    <div class="bar"><div id="pbar" style="width:0"></div></div>
+    <div class="err hidden" id="perr" style="margin-top:10px"></div>
+    <div class="row hidden" id="pdone" style="margin-top:10px"></div>
+    <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Kernel</th><th>หน่วย</th><th class="r">1 thread</th><th class="r">ทุก thread</th><th>สถานะ</th></tr></thead><tbody id="ptable"></tbody></table></div>
+    <details style="margin-top:12px"><summary>log ล่าสุดจากตัวรัน</summary><pre id="plog"></pre></details>
+  </section>
+
+  <section class="card hidden" id="interrupted"><h2>รันที่ถูกขัดจังหวะ</h2><div class="note" id="intnote"></div></section>
+
+  <section class="card">
+    <h2>รายงานที่มี</h2>
+    <div class="table-wrap"><table><thead><tr><th>เทียบ</th><th>ชื่อ</th><th>CPU</th><th>Arch</th><th>Profile</th><th class="r">Threads</th><th class="r">Score 1T</th><th class="r">Score MT</th><th>libc</th><th>เวลา</th><th>เปิด</th></tr></thead><tbody id="rtable"></tbody></table></div>
+    <p class="muted" id="rempty">ยังไม่มีรายงาน</p>
+    <details style="margin-top:12px" open>
+      <summary>เปรียบเทียบสองรายงาน (ติ๊กเลือก 2 รายการ: ตัวแรก = A ฐาน, ตัวที่สอง = B ผู้สมัคร)</summary>
+      <div class="grid" style="margin:10px 0">
+        <label>ราคา A<input id="c-ca" type="number" min="0" step="any"></label><label>ราคา B<input id="c-cb" type="number" min="0" step="any"></label>
+        <label>วัตต์ A<input id="c-wa" type="number" min="0" step="any"></label><label>วัตต์ B<input id="c-wb" type="number" min="0" step="any"></label>
+      </div>
+      <div class="err hidden" id="cerr"></div>
+      <div class="row"><button class="primary" id="cmpbtn" disabled>เปรียบเทียบ</button><span class="muted" id="cmpinfo">เลือก 2 รายงาน</span></div>
+      <div id="cmplist" style="margin-top:10px"></div>
+    </details>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

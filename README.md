@@ -35,6 +35,33 @@ make dist                      # ได้ dist/cpubench-x86_64, -x86_64-v3, -aa
 | `--mode single\|multi\|both` | วัดเฉพาะ 1 thread, เฉพาะทุก thread หรือทั้งคู่ |
 | `--mem-budget-mb N` | ขนาดหน่วยความจำรวมของ STREAM (default = max(2 GiB, 4× LLC รวม) และไม่เกิน 25% ของ RAM) |
 
+## เว็บ UI: `cpubench serve` (กดรัน ดูความคืบหน้า เปิดรายงาน เทียบรายงาน ผ่านเบราว์เซอร์)
+
+```bash
+./cpubench-aarch64 serve                       # http://127.0.0.1:8080  (เฉพาะเครื่องนี้)
+./cpubench-aarch64 serve --out /data/results   # เลือกโฟลเดอร์เก็บรายงาน (default ./cpubench-results)
+```
+
+หน้าเว็บมี: ข้อมูลเครื่อง, ฟอร์มเริ่มรัน (default profile = full), แถบความคืบหน้า + ผลสดทีละ kernel + log + ปุ่มยกเลิก,
+ตารางรายงานทั้งหมด (เปิด html/md/json), และตัวเลือกเทียบสองรายงานพร้อมราคา/วัตต์ ไม่ใช้ CDN จึงใช้ได้บนเซิร์ฟเวอร์ที่ออฟไลน์
+
+**เข้าจากเครื่องอื่น** (เลือกอย่างใดอย่างหนึ่ง):
+
+```bash
+ssh -L 8080:127.0.0.1:8080 user@server         # แนะนำ: ใช้ ssh tunnel แล้วเปิด http://127.0.0.1:8080 บนเครื่องคุณ
+./cpubench-aarch64 serve --bind 0.0.0.0:8080   # เปิดให้เครือข่ายเข้าได้: สร้าง token อัตโนมัติ แล้วพิมพ์ URL ที่มี ?token=... ให้
+./cpubench-aarch64 serve --bind 0.0.0.0:8080 --token <อย่างน้อย 8 ตัว>
+```
+
+การป้องกัน: bind ที่ไม่ใช่ loopback **บังคับ token** (เว้นแต่ใส่ `--no-auth` ซึ่งจะพิมพ์คำเตือน), รันได้ทีละงานเดียว,
+ค่าจากฟอร์มทุกตัวถูกตรวจและส่งให้ตัวรันเป็นรายการ argument (ไม่ผ่าน shell) โดยโฟลเดอร์ผลลัพธ์กำหนดโดยผู้เปิดเซิร์ฟเวอร์เท่านั้น,
+เปิดไฟล์รายงานได้เฉพาะชื่อที่ผ่าน whitelist (กัน path traversal), กัน DNS rebinding และ cross-site POST
+ไม่มี TLS ในตัว: ถ้าต้องเปิดผ่านเครือข่ายที่ไม่ไว้ใจ ให้ใช้ ssh tunnel หรือ reverse proxy ที่มี HTTPS
+
+การทำงาน: เซิร์ฟเวอร์สั่ง `cpubench run` เป็น process ลูก ถ้า kernel ใด crash หน้าเว็บยังอยู่และแสดงสถานะ `failed` พร้อม output สุดท้ายของตัวรัน
+ปุ่มยกเลิกฆ่า process ลูก (ผลที่วัดไปแล้วถูกทิ้ง) และถ้าเซิร์ฟเวอร์ถูกปิด process ลูกจะถูกฆ่าตามเสมอ
+หน้าเว็บจะถามสถานะทุก ~2.5 วินาที (เบามาก) และจะแจ้งถ้าพบการรันที่ไม่จบค้างอยู่ในโฟลเดอร์ผลลัพธ์
+
 ## Build จาก source บน OS เป้าหมาย (เลือก glibc หรือ musl เองได้)
 
 `make src-dist` สร้าง `dist/cpubench-src.tar.gz` (≈6 MB, รวม dependency ที่ vendor ไว้แล้ว) เครื่องปลายทางต้องมีแค่ Rust toolchain
@@ -116,7 +143,8 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release --offline
 ## โครงสร้างโค้ด
 
 ```
-src/main.rs        CLI (run / compare / report / info / list)
+src/main.rs        CLI (run / serve / compare / report / info / list)
+src/serve/         เว็บ UI: server, ตัวจัดการ process ลูก, ตรวจ input, ui.html + app.js
 src/harness.rs     วัดผล: barrier, warm-up, sample, รวมผลหลาย thread
 src/kernels/       int, fp, mem, crypto, compress, data
 src/sysinfo.rs     ตรวจสเปก (x86 + ARM/HiSilicon), cache, NUMA, topology
@@ -125,4 +153,4 @@ src/report/        โมเดลเอกสารกลาง + renderer text
 build.rs           บันทึก target/rustflags/rustc/libc ลงรายงาน
 ```
 
-`make test` รัน unit test 63 ข้อ (ค่าคำตอบที่ทราบ เช่น จำนวนจำนวนเฉพาะ ≤10⁷, พลังงาน n-body, FIPS-197 AES, SHA test vector)
+`make test` รัน unit test 80 ข้อ (ค่าคำตอบที่ทราบ เช่น จำนวนจำนวนเฉพาะ ≤10⁷, พลังงาน n-body, FIPS-197 AES, SHA test vector)
