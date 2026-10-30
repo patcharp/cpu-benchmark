@@ -23,6 +23,18 @@ make dist                      # ได้ dist/cpubench-x86_64, -x86_64-v3, -aa
 ผลลัพธ์อยู่ใน `./cpubench-results/` (`<label>.json` คือข้อมูลดิบ, `.md` และ `.html` ไว้อ่านและแชร์)
 คำสั่งอื่น: `info` (ดูสเปกที่ตรวจพบ), `list` (รายการ kernel), `report file.json` (สร้าง md/html ใหม่จาก JSON)
 
+### ชื่อสถาปัตยกรรม: `aarch64` กับ `arm64` คือสิ่งเดียวกัน
+
+ทั้งสองคือ ARM 64 บิต (ARMv8-A ขึ้นไป) ต่างกันแค่ชื่อที่แต่ละวงการเรียก ไม่ใช่คนละชุดคำสั่ง:
+
+| ชื่อ | ใช้ที่ไหน |
+|---|---|
+| `aarch64` | ชื่อทางการของ ARM, Linux kernel (`uname -m`), GNU/LLVM toolchain, Rust (`aarch64-unknown-linux-musl`) |
+| `arm64` | Apple, Go (`GOARCH=arm64`), Docker (`--platform linux/arm64`), Debian/Ubuntu (`dpkg --print-architecture`), Windows |
+
+โปรเจกต์นี้ใช้ชื่อ `aarch64` (ไฟล์ `cpubench-aarch64`, ค่า `arch` ในรายงาน) ถ้าเครื่องปลายทางรายงานว่า `arm64` ให้ใช้ไฟล์เดียวกัน
+สิ่งที่ใช้ไม่ได้คือ ARM **32 บิต** (`armv7l`, `armhf`) ซึ่งเป็นคนละสถาปัตยกรรม; Kunpeng 920 และ Raspberry Pi 5 เป็น 64 บิต ใช้ได้
+
 ### ตัวเลือกสำคัญของ `run`
 
 | ตัวเลือก | ความหมาย |
@@ -64,24 +76,29 @@ ssh -L 8080:127.0.0.1:8080 user@server         # แนะนำ: ใช้ ssh 
 
 ## Build จาก source บน OS เป้าหมาย (เลือก glibc หรือ musl เองได้)
 
-`make src-dist` สร้าง `dist/cpubench-src.tar.gz` (≈6 MB, รวม dependency ที่ vendor ไว้แล้ว) เครื่องปลายทางต้องมีแค่ Rust toolchain
-(ใช้ rustup หรือตัวติดตั้ง offline จาก static.rust-lang.org; dependency ตัวหนึ่งประกาศ rust-version 1.89 จึงแนะนำ Rust ≥ 1.89) ไม่ต้องใช้เน็ต
+ซอร์สอยู่ที่ https://github.com/patcharp/cpu-benchmark (public, clone ได้โดยไม่ต้อง login) เครื่องปลายทางต้องมี **git** และ **Rust toolchain**
+(ติดตั้งด้วย rustup; dependency ตัวหนึ่งประกาศ rust-version 1.89 จึงแนะนำ Rust ≥ 1.89) และต้องเข้า github.com กับ crates.io ได้
+(cargo ดาวน์โหลด dependency ตอน build ครั้งแรก)
 
 ```bash
-tar xzf cpubench-src.tar.gz && cd cpubench
+git clone https://github.com/patcharp/cpu-benchmark.git && cd cpu-benchmark
 
 # glibc (ใช้ libc ของ OS นั้น = สิ่งที่บริการจริงใช้)  -> ./target/release/cpubench
-cargo build --release --offline
+cargo build --release
 
 # musl static (ต้อง rustup target add <arch>-unknown-linux-musl ก่อน) -> ./target/<arch>-unknown-linux-musl/release/cpubench
-cargo build --release --offline --target aarch64-unknown-linux-musl     # หรือ x86_64-unknown-linux-musl
+rustup target add aarch64-unknown-linux-musl                           # หรือ x86_64-unknown-linux-musl
+cargo build --release --target aarch64-unknown-linux-musl
 
 # ใช้ชุดคำสั่งเต็มของ CPU นั้น (AVX-512 / ฯลฯ); รายงานจะบันทึกไว้ว่าเป็น native build
-RUSTFLAGS="-C target-cpu=native" cargo build --release --offline
+RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-รายงานบันทึก libc ของ build (`glibc` / `musl`) และ `compare` จะเตือนถ้าสองรายงานใช้ libc ไม่ตรงกัน
-(ถ้า `rust-lld` ไม่มีบนเครื่องปลายทาง ให้ลบบรรทัด `linker = "rust-lld"` ใน `.cargo/config.toml` สำหรับ target musl ที่ไม่ได้ใช้)
+- **ใช้ commit เดียวกันทุกเครื่อง** ที่จะเอารายงานมาเทียบกัน (`git rev-parse --short HEAD` ดูได้): `compare` เตือนเมื่อเลขเวอร์ชันของ cpubench ต่างกัน
+  แต่เลขเวอร์ชันไม่เปลี่ยนระหว่าง commit และรายงานยังไม่บันทึกว่า build จาก commit ไหน จึงต้องคุมเอง (`git checkout <commit>` ก่อน build)
+- รายงานบันทึก libc ของ build (`glibc` / `musl`) และ `compare` จะเตือนถ้าสองรายงานใช้ libc ไม่ตรงกัน
+- ถ้า `rust-lld` ไม่มีบนเครื่องปลายทาง ให้ลบบรรทัด `linker = "rust-lld"` ใน `.cargo/config.toml` สำหรับ target musl ที่ไม่ได้ใช้
+- เครื่องที่ออก internet ไม่ได้: ใช้ binary สำเร็จรูปจาก `make dist` หรือ `make src-dist` (tarball ซอร์สพร้อม dependency สำหรับ `cargo build --offline`) บนเครื่องที่ออกเน็ตได้ แล้วคัดลอกไป
 
 ## สิ่งที่วัด (24 kernel, ทุกตัววัดที่ 1 thread และทุก thread)
 
